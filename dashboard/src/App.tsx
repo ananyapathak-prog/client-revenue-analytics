@@ -256,7 +256,19 @@ function App() {
                     return (
                       <td
                         key={month}
-                        className="px-4 py-3 text-center text-slate-600"
+                        className="px-4 py-3 text-center font-medium"
+                        style={{
+                          backgroundColor: data
+                            ? `rgba(99, 102, 241, ${Math.min(
+                              data.retention_percentage / 100,
+                              0.8
+                            )})`
+                            : "transparent",
+                          color:
+                            data && data.retention_percentage > 50
+                              ? "white"
+                              : "#334155",
+                        }}
                       >
                         {data
                           ? `${data.retention_percentage}%`
