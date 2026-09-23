@@ -176,8 +176,9 @@ function App() {
                 outerRadius={100}
                 label
               >
-                {customerSegments.map((segment) => (
-                  <Cell key={segment.customer_type} />
+                {customerSegments.map((segment, index) => (
+                  <Cell key={segment.customer_type}
+                    fill={index === 0 ? "#dd4bb1" : "#920de4"} />
                 ))}
               </Pie>
 
