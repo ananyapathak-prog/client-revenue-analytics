@@ -1,5 +1,35 @@
 import { useEffect, useState } from "react"
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+} from "recharts"
 function App() {
+  const [monthlyRevenue, setMonthlyRevenue] = useState<
+    { month: string; net_revenue: number }[]
+  >([])
+  useEffect(() => {
+    fetch("http://127.0.0.1:8000/analytics/monthly-revenue")
+      .then((response) => response.json())
+      .then((data) => {
+        setMonthlyRevenue(data)
+
+        const total = data.reduce(
+          (sum: number, month: { net_revenue: number }) =>
+            sum + month.net_revenue,
+          0
+        )
+
+        setTotalNetRevenue(total)
+      })
+  }, [])
   const [aov, setAov] = useState<number | null>(null)
   useEffect(() => {
     fetch("http://127.0.0.1:8000/analytics/aov")
@@ -94,8 +124,67 @@ function App() {
               {metric.value}
             </p>
           </div>
+
+
         ))}
 
+      </div>
+      <div className="mt-8 rounded-xl bg-white p-6 shadow-sm">
+        <h2 className="text-xl font-semibold text-slate-900">
+          Monthly Revenue
+        </h2>
+
+        <p className="mt-1 text-sm text-slate-500">
+          Net revenue by month
+        </p>
+
+        <div className="mt-6 h-80">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={monthlyRevenue}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="month" />
+              <YAxis />
+              <Tooltip />
+              <Line
+                type="monotone"
+                dataKey="net_revenue"
+                stroke="#2563eb"
+                strokeWidth={2}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+      <div className="mt-8 rounded-xl bg-white p-6 shadow-sm">
+        <h2 className="text-xl font-semibold text-slate-900">
+          Customer Segmentation
+        </h2>
+
+        <p className="mt-1 text-sm text-slate-500">
+          Repeat vs one-time customers
+        </p>
+
+        <div className="mt-6 h-80">
+          <ResponsiveContainer width="100%" height="100%">
+            <PieChart>
+              <Pie
+                data={customerSegments}
+                dataKey="percentage"
+                nameKey="customer_type"
+                cx="50%"
+                cy="50%"
+                outerRadius={100}
+                label
+              >
+                {customerSegments.map((segment) => (
+                  <Cell key={segment.customer_type} />
+                ))}
+              </Pie>
+
+              <Tooltip />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
       </div>
 
     </div>
