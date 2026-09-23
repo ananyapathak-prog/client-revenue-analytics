@@ -15,6 +15,21 @@ function App() {
   const [monthlyRevenue, setMonthlyRevenue] = useState<
     { month: string; net_revenue: number }[]
   >([])
+  const [cohortRetention, setCohortRetention] = useState<
+    {
+      cohort: string
+      month_number: number
+      active_customers: number
+      retention_percentage: number
+    }[]
+  >([])
+  useEffect(() => {
+    fetch("http://127.0.0.1:8000/analytics/cohort-retention")
+      .then((response) => response.json())
+      .then((data) => {
+        setCohortRetention(data)
+      })
+  }, [])
   useEffect(() => {
     fetch("http://127.0.0.1:8000/analytics/monthly-revenue")
       .then((response) => response.json())
@@ -97,6 +112,9 @@ function App() {
           : "Loading...",
     },
   ]
+  const cohortMonths = Array.from(
+    new Set(cohortRetention.map((item) => item.month_number))
+  ).sort((a, b) => a - b)
 
   return (
     <div className="min-h-screen bg-slate-100 p-8">
@@ -188,7 +206,83 @@ function App() {
         </div>
       </div>
 
+      <div className="mt-8 rounded-xl bg-white p-6 shadow-sm">
+        <h2 className="text-xl font-semibold text-slate-900">
+          Cohort Retention
+        </h2>
+
+        <p className="mt-1 text-sm text-slate-500">
+          Percentage of customers returning in each month after their first purchase
+        </p>
+
+        <div className="mt-6 overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-200">
+                <th className="px-4 py-3 text-left font-semibold text-slate-700">
+                  Cohort
+                </th>
+
+                {cohortMonths.map((month) => (
+                  <th
+                    key={month}
+                    className="px-4 py-3 text-center font-semibold text-slate-700"
+                  >
+                    M{month}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+
+            <tbody>
+              {Array.from(
+                new Set(cohortRetention.map((item) => item.cohort))
+              ).map((cohort) => (
+                <tr
+                  key={cohort}
+                  className="border-b border-slate-100"
+                >
+                  <td className="px-4 py-3 font-medium text-slate-700">
+                    {cohort}
+                  </td>
+
+                  {cohortMonths.map((month) => {
+                    const data = cohortRetention.find(
+                      (item) =>
+                        item.cohort === cohort &&
+                        item.month_number === month
+                    )
+
+                    return (
+                      <td
+                        key={month}
+                        className="px-4 py-3 text-center text-slate-600"
+                      >
+                        {data
+                          ? `${data.retention_percentage}%`
+                          : "-"}
+                      </td>
+                    )
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
     </div>
+
+
+
+
+
+
+
+
+
+
+
   )
 }
 
