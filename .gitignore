@@ -19,6 +19,7 @@ dashboard/dist/
 data/raw/
 *.xlsx
 *.zip
-
+data/processed/cleaned_retail.csv
 # OS
 .DS_Store
+
