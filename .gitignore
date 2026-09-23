@@ -1,0 +1,24 @@
+
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Environment variables
+.env
+
+# Node
+node_modules/
+dashboard/node_modules/
+
+# Build files
+dist/
+dashboard/dist/
+
+# Data
+data/raw/
+*.xlsx
+*.zip
+
+# OS
+.DS_Store
