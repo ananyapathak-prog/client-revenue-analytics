@@ -264,6 +264,8 @@ def top_products():
             SUM(revenue) AS total_revenue
         FROM transactions
         WHERE is_cancellation = FALSE
+         AND description NOT IN ('DOTCOM POSTAGE', 'POSTAGE')
+       
         GROUP BY stock_code, description
         ORDER BY total_revenue DESC
         LIMIT 10;
@@ -276,6 +278,34 @@ def top_products():
         {
             "stock_code": row.stock_code,
             "description": row.description,
+            "total_revenue": float(row.total_revenue)
+        }
+        for row in result
+    ]
+
+    return data
+
+
+@app.get("/analytics/top-customers")
+def top_customers():
+
+    query = text("""
+        SELECT
+            customer_id,
+            SUM(revenue) AS total_revenue
+        FROM transactions
+        WHERE customer_id IS NOT NULL
+        GROUP BY customer_id
+        ORDER BY total_revenue DESC
+        LIMIT 10;
+    """)
+
+    with engine.connect() as connection:
+        result = connection.execute(query)
+
+    data = [
+        {
+            "customer_id": row.customer_id,
             "total_revenue": float(row.total_revenue)
         }
         for row in result

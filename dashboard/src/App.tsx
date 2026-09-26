@@ -15,6 +15,24 @@ function App() {
   const [monthlyRevenue, setMonthlyRevenue] = useState<
     { month: string; net_revenue: number }[]
   >([])
+
+  const [topProducts, setTopProducts] = useState<
+    {
+      stock_code: string
+      description: string
+      total_revenue: number
+    }[]
+  >([])
+
+  const [topCustomers, setTopCustomers] = useState<
+    {
+      customer_id: number
+      total_revenue: number
+    }[]
+  >([])
+
+
+
   const [cohortRetention, setCohortRetention] = useState<
     {
       cohort: string
@@ -28,6 +46,21 @@ function App() {
       .then((response) => response.json())
       .then((data) => {
         setCohortRetention(data)
+      })
+  }, [])
+
+  useEffect(() => {
+    fetch("http://127.0.0.1:8000/analytics/top-products")
+      .then((response) => response.json())
+      .then((data) => {
+        setTopProducts(data)
+      })
+  }, [])
+  useEffect(() => {
+    fetch("http://127.0.0.1:8000/analytics/top-customers")
+      .then((response) => response.json())
+      .then((data) => {
+        setTopCustomers(data)
       })
   }, [])
   useEffect(() => {
@@ -283,7 +316,103 @@ function App() {
         </div>
       </div>
 
+
+      <div className="mt-8 rounded-xl bg-white p-6 shadow-sm">
+        <h2 className="text-xl font-semibold text-slate-900">
+          Top Products
+        </h2>
+
+        <p className="mt-1 text-sm text-slate-500">
+          Products generating the highest net revenue
+        </p>
+
+        <div className="mt-6 overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-200">
+                <th className="px-4 py-3 text-left font-semibold text-slate-700">
+                  Product
+                </th>
+
+                <th className="px-4 py-3 text-left font-semibold text-slate-700">
+                  Stock Code
+                </th>
+
+                <th className="px-4 py-3 text-right font-semibold text-slate-700">
+                  Revenue
+                </th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {topProducts.map((product) => (
+                <tr
+                  key={product.stock_code}
+                  className="border-b border-slate-100"
+                >
+                  <td className="px-4 py-3 font-medium text-slate-700">
+                    {product.description}
+                  </td>
+
+                  <td className="px-4 py-3 text-slate-500">
+                    {product.stock_code}
+                  </td>
+
+                  <td className="px-4 py-3 text-right font-medium text-slate-700">
+                    £{product.total_revenue.toLocaleString()}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="mt-8 rounded-xl bg-white p-6 shadow-sm">
+        <h2 className="text-xl font-semibold text-slate-900">
+          Top Customers
+        </h2>
+
+        <p className="mt-1 text-sm text-slate-500">
+          Customers generating the highest net revenue
+        </p>
+
+        <div className="mt-6 overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-200">
+                <th className="px-4 py-3 text-left font-semibold text-slate-700">
+                  Customer ID
+                </th>
+
+                <th className="px-4 py-3 text-right font-semibold text-slate-700">
+                  Revenue
+                </th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {topCustomers.map((customer) => (
+                <tr
+                  key={customer.customer_id}
+                  className="border-b border-slate-100"
+                >
+                  <td className="px-4 py-3 font-medium text-slate-700">
+                    {customer.customer_id}
+                  </td>
+
+                  <td className="px-4 py-3 text-right font-medium text-slate-700">
+                    £{customer.total_revenue.toLocaleString()}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
     </div>
+
 
 
 
