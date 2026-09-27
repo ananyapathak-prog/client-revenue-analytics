@@ -1,7 +1,8 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from api.database import engine
+import pandas as pd
 
 app = FastAPI()
 app.add_middleware(
@@ -265,7 +266,7 @@ def top_products():
         FROM transactions
         WHERE is_cancellation = FALSE
          AND description NOT IN ('DOTCOM POSTAGE', 'POSTAGE')
-       
+
         GROUP BY stock_code, description
         ORDER BY total_revenue DESC
         LIMIT 10;
@@ -312,3 +313,125 @@ def top_customers():
     ]
 
     return data
+
+
+def detect_columns(columns):
+
+    column_map = {}
+
+    for column in columns:
+
+        name = column.lower().replace(" ", "_")
+
+        if name in ["orderid", "order_id", "invoice", "invoice_no"]:
+            column_map["order_id"] = column
+
+        elif name in ["customerid", "customer_id", "customer", "client_id"]:
+            column_map["customer_id"] = column
+
+        elif name in ["date", "order_date", "transaction_date", "invoice_date"]:
+            column_map["date"] = column
+
+        elif name in ["product", "product_name", "item", "description"]:
+            column_map["product"] = column
+
+        elif name in ["quantity", "qty", "units"]:
+            column_map["quantity"] = column
+
+        elif name in ["price", "unit_price", "amount"]:
+            column_map["unit_price"] = column
+
+    return column_map
+
+
+def standardize_data(df, column_map):
+
+    df = df.rename(
+        columns={
+            column_map["order_id"]: "order_id",
+            column_map["customer_id"]: "customer_id",
+            column_map["date"]: "date",
+            column_map["product"]: "product",
+            column_map["quantity"]: "quantity",
+            column_map["unit_price"]: "unit_price",
+        }
+    )
+
+    df["quantity"] = pd.to_numeric(df["quantity"], errors="coerce")
+    df["unit_price"] = pd.to_numeric(df["unit_price"], errors="coerce")
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+
+    df["revenue"] = df["quantity"] * df["unit_price"]
+
+    return df
+
+
+@app.post("/upload")
+async def upload_file(file: UploadFile = File(...)):
+
+    df = pd.read_csv(file.file)
+
+    detected_columns = detect_columns(df.columns)
+
+    required_columns = [
+        "order_id",
+        "customer_id",
+        "date",
+        "product",
+        "quantity",
+        "unit_price"
+    ]
+
+    missing_columns = [
+        column
+        for column in required_columns
+        if column not in detected_columns
+    ]
+
+    if missing_columns:
+        return {
+            "error": "Could not detect required columns",
+            "missing_columns": missing_columns
+        }
+
+    standardized_df = standardize_data(df, detected_columns)
+
+    validation_errors = validate_data(standardized_df)
+
+    if validation_errors:
+        return {
+            "error": "Data validation failed",
+            "details": validation_errors
+        }
+
+    return {
+        "filename": file.filename,
+        "rows": len(standardized_df),
+        "columns": list(standardized_df.columns),
+        "preview": standardized_df.head(5).to_dict(orient="records")
+    }
+
+
+def validate_data(df):
+
+    errors = []
+
+    if df["order_id"].isna().any():
+        errors.append("Some orders are missing order IDs.")
+
+    if df["date"].isna().any():
+        errors.append("Some rows have missing dates.")
+
+    if df["quantity"].isna().any():
+        errors.append("Some rows have missing quantities.")
+
+    if df["unit_price"].isna().any():
+        errors.append("Some rows have missing prices.")
+
+    if (df["quantity"] <= 0).any():
+        errors.append("Some rows have zero or negative quantities.")
+
+    if (df["unit_price"] <= 0).any():
+        errors.append("Some rows have zero or negative prices.")
+
+    return errors
