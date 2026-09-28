@@ -2,6 +2,7 @@ services:
   - type: web
     name: client-revenue-analytics-api
     runtime: python
+    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
     envVars:
@@ -16,5 +17,6 @@ services:
 
 databases:
   - name: client-revenue-analytics-db
+    plan: free
     databaseName: revenue_analytics
     user: revenue_analytics
