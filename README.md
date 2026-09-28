@@ -80,3 +80,24 @@ client-revenue-analytics/
 │
 ├── requirements.txt
 └── README.md
+```
+
+## Deployment
+
+The repository includes `render.yaml` for the FastAPI service and PostgreSQL database, plus `dashboard/vercel.json` for the Vite frontend.
+
+### Render backend
+
+1. Create a new Blueprint on Render from this GitHub repository.
+2. Select `render.yaml` when prompted.
+3. Copy the API URL after the service is created, such as `https://client-revenue-analytics-api.onrender.com`.
+4. Set the Render `FRONTEND_URL` value to the deployed Vercel URL.
+
+### Vercel frontend
+
+1. Import the same GitHub repository into Vercel.
+2. Set the project root directory to `dashboard`.
+3. Add `VITE_API_URL` with the Render API URL.
+4. Deploy the project.
+
+The backend uses `DATABASE_URL` and `JWT_SECRET` from the deployment environment. Do not commit `.env`; use `.env.example` as the local template.

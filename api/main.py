@@ -1,22 +1,231 @@
-from fastapi import FastAPI, UploadFile, File
+import base64
+import hashlib
+import hmac
+import json
+import os
+import secrets
+from datetime import datetime, timedelta, timezone
+
+from fastapi import Depends, FastAPI, HTTPException, UploadFile, File, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from api.database import engine
 import pandas as pd
 
 app = FastAPI()
+frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=[frontend_url, "http://localhost:5173", "http://127.0.0.1:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+JWT_SECRET = os.getenv("JWT_SECRET", "local-development-secret-change-me")
+bearer_scheme = HTTPBearer(auto_error=False)
+
+
+class AuthPayload(BaseModel):
+    email: str
+    password: str
+    name: str | None = None
+
+
+def ensure_users_table():
+    with engine.begin() as connection:
+        connection.execute(text("""
+            CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(120) NOT NULL,
+                email VARCHAR(320) UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """))
+
+
+def ensure_user_transactions_table():
+    with engine.begin() as connection:
+        connection.execute(text("""
+            CREATE TABLE IF NOT EXISTS user_transactions (
+                id BIGSERIAL PRIMARY KEY,
+                owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                invoice_no TEXT NOT NULL,
+                customer_id TEXT,
+                description TEXT,
+                quantity NUMERIC(18, 4) NOT NULL,
+                invoice_date TIMESTAMP NOT NULL,
+                unit_price NUMERIC(18, 4) NOT NULL,
+                country TEXT,
+                revenue NUMERIC(20, 4) NOT NULL,
+                is_cancellation BOOLEAN NOT NULL DEFAULT FALSE
+            )
+        """))
+
+
+def hash_password(password: str) -> str:
+    salt = secrets.token_bytes(16)
+    digest = hashlib.scrypt(password.encode(), salt=salt, n=2**14, r=8, p=1)
+    return f"scrypt${base64.urlsafe_b64encode(salt).decode()}${base64.urlsafe_b64encode(digest).decode()}"
+
+
+def verify_password(password: str, stored_hash: str) -> bool:
+    try:
+        _, salt_text, digest_text = stored_hash.split("$", 2)
+        salt = base64.urlsafe_b64decode(salt_text.encode())
+        expected = base64.urlsafe_b64decode(digest_text.encode())
+        actual = hashlib.scrypt(password.encode(), salt=salt, n=2**14, r=8, p=1)
+        return hmac.compare_digest(actual, expected)
+    except (ValueError, TypeError):
+        return False
+
+
+def create_token(user_id: int, email: str, name: str) -> str:
+    header = {"alg": "HS256", "typ": "JWT"}
+    payload = {"sub": user_id, "email": email, "name": name, "exp": int((datetime.now(timezone.utc) + timedelta(days=7)).timestamp())}
+
+    def encode(value: dict) -> str:
+        return base64.urlsafe_b64encode(json.dumps(value, separators=(",", ":")).encode()).decode().rstrip("=")
+
+    unsigned = f"{encode(header)}.{encode(payload)}"
+    signature = hmac.new(JWT_SECRET.encode(), unsigned.encode(), hashlib.sha256).digest()
+    return f"{unsigned}.{base64.urlsafe_b64encode(signature).decode().rstrip('=')}"
+
+
+def get_current_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme)):
+    if not credentials or credentials.scheme.lower() != "bearer":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
+    try:
+        encoded_header, encoded_payload, encoded_signature = credentials.credentials.split(".")
+        unsigned = f"{encoded_header}.{encoded_payload}"
+        supplied = base64.urlsafe_b64decode(encoded_signature + "===")
+        expected = hmac.new(JWT_SECRET.encode(), unsigned.encode(), hashlib.sha256).digest()
+        if not hmac.compare_digest(supplied, expected):
+            raise ValueError
+        payload = json.loads(base64.urlsafe_b64decode(encoded_payload + "===").decode())
+        if int(payload["exp"]) < int(datetime.now(timezone.utc).timestamp()):
+            raise ValueError
+        return payload
+    except (ValueError, KeyError, json.JSONDecodeError, UnicodeDecodeError):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired session")
+
+
+def get_optional_user(credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme)):
+    if not credentials:
+        return None
+    try:
+        return get_current_user(credentials)
+    except HTTPException:
+        return None
+
 
 @app.get("/")
 def home():
     return {"message": "Revenue Analytics API is running"}
+
+
+@app.post("/auth/signup")
+def signup(payload: AuthPayload):
+    if not payload.name or not payload.name.strip():
+        raise HTTPException(status_code=400, detail="Name is required")
+    if "@" not in payload.email or "." not in payload.email.split("@")[-1]:
+        raise HTTPException(status_code=400, detail="Enter a valid email address")
+    if len(payload.password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    ensure_users_table()
+    email = payload.email.lower()
+    try:
+        with engine.begin() as connection:
+            row = connection.execute(text("""
+                INSERT INTO users (name, email, password_hash)
+                VALUES (:name, :email, :password_hash)
+                RETURNING id, name, email
+            """), {"name": payload.name.strip(), "email": email, "password_hash": hash_password(payload.password)}).mappings().one()
+    except IntegrityError:
+        raise HTTPException(status_code=409, detail="An account with this email already exists")
+    return {"token": create_token(row["id"], row["email"], row["name"]), "user": dict(row)}
+
+
+@app.post("/auth/login")
+def login(payload: AuthPayload):
+    ensure_users_table()
+    with engine.connect() as connection:
+        row = connection.execute(text("SELECT id, name, email, password_hash FROM users WHERE email = :email"), {"email": payload.email.lower()}).mappings().first()
+    if not row or not verify_password(payload.password, row["password_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    user = {"id": row["id"], "name": row["name"], "email": row["email"]}
+    return {"token": create_token(row["id"], row["email"], row["name"]), "user": user}
+
+
+@app.get("/auth/me")
+def me(current_user=Depends(get_current_user)):
+    return {"user": current_user}
+
+
+@app.get("/analytics/summary")
+def analytics_summary(segment: str | None = None, country: str | None = None, product: str | None = None, current_user=Depends(get_optional_user)):
+    """Return the dashboard's core metrics after applying the workspace filters."""
+    conditions = ["t.is_cancellation = FALSE"]
+    params = {}
+    source_table = "transactions"
+    if current_user:
+        source_table = "user_transactions"
+        conditions.append("t.owner_id = :owner_id")
+        params["owner_id"] = int(current_user["sub"])
+    if country and country != "All countries":
+        conditions.append("t.country = :country")
+        params["country"] = country
+    if product and product != "All products":
+        conditions.append("t.description = :product")
+        params["product"] = product
+    if segment and segment != "All customers":
+        conditions.append("cf.customer_type = :segment")
+        params["segment"] = "Repeat" if segment == "Repeat customers" else "One-time"
+    where_clause = " AND ".join(conditions)
+    filtered_cte = f"""
+        WITH customer_frequency AS (
+            SELECT customer_id,
+                CASE WHEN COUNT(DISTINCT invoice_no) = 1 THEN 'One-time' ELSE 'Repeat' END AS customer_type
+            FROM {source_table}
+            WHERE customer_id IS NOT NULL AND is_cancellation = FALSE
+            GROUP BY customer_id
+        ), filtered AS (
+            SELECT t.* FROM {source_table} t
+            LEFT JOIN customer_frequency cf ON cf.customer_id = t.customer_id
+            WHERE {where_clause}
+        )
+    """
+    with engine.connect() as connection:
+        monthly = connection.execute(text(filtered_cte + """
+            SELECT TO_CHAR(DATE_TRUNC('month', invoice_date), 'YYYY-MM') AS month,
+                   COALESCE(SUM(revenue), 0) AS revenue,
+                   COUNT(DISTINCT invoice_no) AS orders
+            FROM filtered GROUP BY 1 ORDER BY 1
+        """), params).mappings().all()
+        totals = connection.execute(text(filtered_cte + """
+            SELECT COALESCE(SUM(revenue), 0) AS revenue,
+                   COUNT(DISTINCT invoice_no) AS orders,
+                   COALESCE((SELECT AVG(order_revenue) FROM (
+                       SELECT invoice_no, SUM(revenue) AS order_revenue
+                       FROM filtered GROUP BY invoice_no
+                   ) order_totals), 0) AS aov
+            FROM filtered
+        """), params).mappings().one()
+        products = connection.execute(text(filtered_cte + """
+            SELECT description AS name, COALESCE(SUM(revenue), 0) AS revenue
+            FROM filtered WHERE description IS NOT NULL
+            GROUP BY description ORDER BY revenue DESC LIMIT 5
+        """), params).mappings().all()
+    total_revenue = float(totals["revenue"] or 0)
+    return {
+        "totals": {"revenue": total_revenue, "orders": int(totals["orders"] or 0), "aov": float(totals["aov"] or 0)},
+        "monthly_revenue": [{"month": row["month"], "revenue": float(row["revenue"] or 0), "orders": int(row["orders"] or 0)} for row in monthly],
+        "top_products": [{"name": row["name"], "revenue": float(row["revenue"] or 0), "share": round(float(row["revenue"] or 0) * 100 / total_revenue, 1) if total_revenue else 0} for row in products],
+    }
 
 
 @app.get("/analytics/monthly-revenue")
@@ -367,7 +576,10 @@ def standardize_data(df, column_map):
 
 
 @app.post("/upload")
-async def upload_file(file: UploadFile = File(...)):
+async def upload_file(file: UploadFile = File(...), current_user=Depends(get_current_user)):
+
+    if not file.filename or not file.filename.lower().endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Please upload a CSV file")
 
     df = pd.read_csv(file.file)
 
@@ -389,26 +601,40 @@ async def upload_file(file: UploadFile = File(...)):
     ]
 
     if missing_columns:
-        return {
-            "error": "Could not detect required columns",
-            "missing_columns": missing_columns
-        }
+        raise HTTPException(status_code=422, detail=f"Could not detect required columns: {', '.join(missing_columns)}")
 
     standardized_df = standardize_data(df, detected_columns)
 
     validation_errors = validate_data(standardized_df)
 
     if validation_errors:
-        return {
-            "error": "Data validation failed",
-            "details": validation_errors
-        }
+        raise HTTPException(status_code=422, detail="; ".join(validation_errors))
+
+    ensure_user_transactions_table()
+    standardized_df["invoice_no"] = standardized_df["order_id"].astype(str)
+    standardized_df["description"] = standardized_df["product"].astype(str)
+    standardized_df["invoice_date"] = standardized_df["date"]
+    standardized_df["country"] = standardized_df.get("country", "Unknown")
+    standardized_df["is_cancellation"] = standardized_df["quantity"] < 0
+    records = standardized_df[["invoice_no", "customer_id", "description", "quantity", "invoice_date", "unit_price", "country", "revenue", "is_cancellation"]].to_dict(orient="records")
+    for record in records:
+        record["owner_id"] = int(current_user["sub"])
+
+    with engine.begin() as connection:
+        connection.execute(text("DELETE FROM user_transactions WHERE owner_id = :owner_id"), {"owner_id": int(current_user["sub"])})
+        connection.execute(text("""
+            INSERT INTO user_transactions
+                (owner_id, invoice_no, customer_id, description, quantity, invoice_date, unit_price, country, revenue, is_cancellation)
+            VALUES
+                (:owner_id, :invoice_no, :customer_id, :description, :quantity, :invoice_date, :unit_price, :country, :revenue, :is_cancellation)
+        """), records)
 
     return {
         "filename": file.filename,
         "rows": len(standardized_df),
         "columns": list(standardized_df.columns),
-        "preview": standardized_df.head(5).to_dict(orient="records")
+        "preview": standardized_df.head(5).to_dict(orient="records"),
+        "message": "Dataset uploaded and ready for analysis"
     }
 
 

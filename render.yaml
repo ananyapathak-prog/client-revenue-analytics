@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: client-revenue-analytics-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn api.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: client-revenue-analytics-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: FRONTEND_URL
+        sync: false
+
+databases:
+  - name: client-revenue-analytics-db
+    databaseName: revenue_analytics
+    user: revenue_analytics
