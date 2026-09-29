@@ -5,6 +5,7 @@ import json
 import os
 import secrets
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, UploadFile, File, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -39,6 +40,13 @@ class SettingsPayload(BaseModel):
     workspace_name: str
     currency: str
     notifications_enabled: bool
+
+
+class InsightPayload(BaseModel):
+    totals: dict[str, Any]
+    monthly_revenue: list[dict[str, Any]]
+    top_products: list[dict[str, Any]]
+    filters: dict[str, str] = {}
 
 
 def ensure_users_table():
@@ -212,6 +220,28 @@ def update_settings(payload: SettingsPayload, current_user=Depends(get_current_u
                 updated_at = NOW()
         """), values)
     return values
+
+
+@app.post("/ai/insights")
+def ai_insights(payload: InsightPayload, current_user=Depends(get_optional_user)):
+    metrics = payload.model_dump()
+    fallback = "Revenue is building steadily. Repeat customers and your strongest products are the clearest opportunities to protect and grow."
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return {"source": "deterministic", "headline": "Healthy momentum", "analysis": fallback}
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key)
+        response = client.responses.create(
+            model=os.getenv("OPENAI_MODEL", "gpt-5"),
+            input=[
+                {"role": "system", "content": "You are a concise business analyst. Use only the supplied metrics. Return a 2-sentence executive brief with one concrete action. Do not invent data."},
+                {"role": "user", "content": json.dumps(metrics, default=str)},
+            ],
+        )
+        return {"source": "openai", "headline": "AI business brief", "analysis": response.output_text.strip()}
+    except Exception:
+        return {"source": "deterministic", "headline": "Healthy momentum", "analysis": fallback}
 
 
 @app.get("/analytics/summary")
