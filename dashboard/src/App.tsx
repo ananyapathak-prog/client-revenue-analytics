@@ -6,6 +6,7 @@ import "./App.css"
 
 type Row = Record<string, string | number>
 type RevenuePoint = { month: string; revenue: number; orders: number }
+type AiInsight = { icon: string; title: string; text: string; tone: string }
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000"
 
 const demoRevenue: RevenuePoint[] = [
@@ -37,7 +38,8 @@ function App() {
   const [filters, setFilters] = useState({ segment: "All customers", country: "All countries", product: "All products" })
   const [liveSummary, setLiveSummary] = useState<{ totals: { revenue: number; orders: number; aov: number }; monthly_revenue: RevenuePoint[]; top_products: typeof demoProducts } | null>(null)
   const [settings, setSettings] = useState({ workspace_name: "Analytics workspace", currency: "GBP", notifications_enabled: true })
-  const [aiAnalysis, setAiAnalysis] = useState("Performance is trending in the right direction.")
+  const [aiBrief, setAiBrief] = useState({ headline: "Healthy momentum", score: 84, analysis: "Performance is trending in the right direction.", source: "local", insights: [] as AiInsight[] })
+  const aiAnalysis = aiBrief.analysis
   const [aiBusy, setAiBusy] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
   const isDemo = localStorage.getItem("arcadia_token") === "demo-session"
@@ -124,10 +126,11 @@ function App() {
       const response = await fetch(`${API_URL}/ai/insights`, { method: "POST", headers: { "Content-Type": "application/json", ...(token && token !== "demo-session" ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ totals: { revenue: totalRevenue, orders: totalOrders, aov }, monthly_revenue: chartRevenue, top_products: products, filters }) })
       if (!response.ok) throw new Error()
       const body = await response.json()
-      setAiAnalysis(body.analysis || "Performance is trending in the right direction.")
+      setAiBrief({ headline: body.headline || "Business brief", score: Number(body.score) || 0, analysis: body.analysis || "Performance is trending in the right direction.", source: body.source || "local", insights: Array.isArray(body.insights) ? body.insights : [] })
       setNotice(body.source === "openai" ? "AI business brief refreshed" : "Business brief refreshed with local analytics")
     } catch {
-      setAiAnalysis("Revenue is building steadily. Focus on your strongest products and repeat customers to protect momentum.")
+      setAiBrief((current) => ({ ...current, source: "unavailable" }))
+      setNotice("AI brief unavailable · check the API URL and Render deployment")
       setNotice("Business brief refreshed locally")
     } finally { setAiBusy(false) }
   }

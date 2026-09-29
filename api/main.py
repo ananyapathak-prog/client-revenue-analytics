@@ -225,23 +225,36 @@ def update_settings(payload: SettingsPayload, current_user=Depends(get_current_u
 @app.post("/ai/insights")
 def ai_insights(payload: InsightPayload, current_user=Depends(get_optional_user)):
     metrics = payload.model_dump()
-    fallback = "Revenue is building steadily. Repeat customers and your strongest products are the clearest opportunities to protect and grow."
+    fallback = {
+        "source": "deterministic",
+        "headline": "Healthy momentum",
+        "score": 84,
+        "analysis": "Revenue is building steadily. Repeat customers and your strongest products are the clearest opportunities to protect and grow.",
+        "insights": [
+            {"icon": "↗", "title": "Revenue is moving up", "text": "Your latest revenue and order mix show positive momentum.", "tone": "green"},
+            {"icon": "◆", "title": "Repeat customers matter", "text": "Protect retention and create reasons for customers to come back.", "tone": "gold"},
+            {"icon": "!", "title": "Focus on your best products", "text": "Use your highest-revenue products as the starting point for growth.", "tone": "coral"},
+        ],
+    }
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        return {"source": "deterministic", "headline": "Healthy momentum", "analysis": fallback}
+        return fallback
     try:
         from openai import OpenAI
         client = OpenAI(api_key=api_key)
         response = client.responses.create(
             model=os.getenv("OPENAI_MODEL", "gpt-5"),
             input=[
-                {"role": "system", "content": "You are a concise business analyst. Use only the supplied metrics. Return a 2-sentence executive brief with one concrete action. Do not invent data."},
+                {"role": "system", "content": "You are a concise business analyst. Use only the supplied metrics. Return valid JSON with exactly these keys: headline (string), score (integer 0-100), analysis (2 concise sentences including one concrete action), insights (array of exactly 3 objects with icon, title, text, tone). tone must be green, gold, or coral. Do not invent data."},
                 {"role": "user", "content": json.dumps(metrics, default=str)},
             ],
         )
-        return {"source": "openai", "headline": "AI business brief", "analysis": response.output_text.strip()}
+        generated = json.loads(response.output_text.strip())
+        if not isinstance(generated.get("insights"), list) or len(generated["insights"]) != 3:
+            raise ValueError("The AI response did not contain three insights")
+        return {"source": "openai", **generated}
     except Exception:
-        return {"source": "deterministic", "headline": "Healthy momentum", "analysis": fallback}
+        return fallback
 
 
 @app.get("/analytics/summary")
