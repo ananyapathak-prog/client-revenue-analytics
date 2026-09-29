@@ -49,6 +49,10 @@ class InsightPayload(BaseModel):
     filters: dict[str, str] = {}
 
 
+class AskPayload(BaseModel):
+    question: str
+
+
 def ensure_users_table():
     with engine.begin() as connection:
         connection.execute(text("""
@@ -239,6 +243,49 @@ def ai_insights(payload: InsightPayload, current_user=Depends(get_optional_user)
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         return fallback
+
+
+@app.post("/ai/ask")
+def ask_ai(payload: AskPayload, current_user=Depends(get_optional_user)):
+    question = payload.question.strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="Ask a question about your data")
+    source_table = "user_transactions" if current_user else "transactions"
+    params: dict[str, Any] = {}
+    owner_filter = ""
+    if current_user:
+        owner_filter = " AND owner_id = :owner_id"
+        params["owner_id"] = int(current_user["sub"])
+    with engine.connect() as connection:
+        totals = connection.execute(text(f"""
+            SELECT COALESCE(SUM(revenue), 0) AS revenue,
+                   COUNT(DISTINCT invoice_no) AS orders,
+                   COUNT(DISTINCT customer_id) AS customers
+            FROM {source_table}
+            WHERE is_cancellation = FALSE{owner_filter}
+        """), params).mappings().one()
+        products = connection.execute(text(f"""
+            SELECT description AS product, COALESCE(SUM(revenue), 0) AS revenue
+            FROM {source_table}
+            WHERE is_cancellation = FALSE AND description IS NOT NULL{owner_filter}
+            GROUP BY description ORDER BY revenue DESC LIMIT 10
+        """), params).mappings().all()
+    context = {"totals": dict(totals), "top_products": [dict(row) for row in products]}
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return {"source": "deterministic", "answer": "AI questions are ready once OPENAI_API_KEY is configured on Render. Your data currently contains " + f"{context['totals']['orders']:,} orders and {context['totals']['customers']:,} customers."}
+    try:
+        from openai import OpenAI
+        response = OpenAI(api_key=api_key).responses.create(
+            model=os.getenv("OPENAI_MODEL", "gpt-5"),
+            input=[
+                {"role": "system", "content": "You are a careful business analyst. Answer the user's question using only the supplied business metrics. Be concise, specific, and state when the data is insufficient. Do not invent figures."},
+                {"role": "user", "content": json.dumps({"question": question, "data": context}, default=str)},
+            ],
+        )
+        return {"source": "openai", "answer": response.output_text.strip()}
+    except Exception:
+        return {"source": "deterministic", "answer": "I could not reach the AI service right now. Please check the Render OpenAI configuration and try again."}
     try:
         from openai import OpenAI
         client = OpenAI(api_key=api_key)
