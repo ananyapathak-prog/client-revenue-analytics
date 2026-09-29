@@ -33,3 +33,11 @@ CREATE TABLE IF NOT EXISTS user_transactions (
     revenue NUMERIC(20, 4) NOT NULL,
     is_cancellation BOOLEAN NOT NULL DEFAULT FALSE
 );
+
+CREATE TABLE IF NOT EXISTS user_settings (
+    owner_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    workspace_name VARCHAR(120) NOT NULL DEFAULT 'Analytics workspace',
+    currency VARCHAR(3) NOT NULL DEFAULT 'GBP',
+    notifications_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

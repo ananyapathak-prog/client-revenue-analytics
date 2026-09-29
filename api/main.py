@@ -35,6 +35,12 @@ class AuthPayload(BaseModel):
     name: str | None = None
 
 
+class SettingsPayload(BaseModel):
+    workspace_name: str
+    currency: str
+    notifications_enabled: bool
+
+
 def ensure_users_table():
     with engine.begin() as connection:
         connection.execute(text("""
@@ -63,6 +69,19 @@ def ensure_user_transactions_table():
                 country TEXT,
                 revenue NUMERIC(20, 4) NOT NULL,
                 is_cancellation BOOLEAN NOT NULL DEFAULT FALSE
+            )
+        """))
+
+
+def ensure_user_settings_table():
+    with engine.begin() as connection:
+        connection.execute(text("""
+            CREATE TABLE IF NOT EXISTS user_settings (
+                owner_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+                workspace_name VARCHAR(120) NOT NULL DEFAULT 'Analytics workspace',
+                currency VARCHAR(3) NOT NULL DEFAULT 'GBP',
+                notifications_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
         """))
 
@@ -164,6 +183,35 @@ def login(payload: AuthPayload):
 @app.get("/auth/me")
 def me(current_user=Depends(get_current_user)):
     return {"user": current_user}
+
+
+@app.get("/settings")
+def get_settings(current_user=Depends(get_current_user)):
+    ensure_user_settings_table()
+    with engine.connect() as connection:
+        row = connection.execute(text("SELECT workspace_name, currency, notifications_enabled FROM user_settings WHERE owner_id = :owner_id"), {"owner_id": int(current_user["sub"])}).mappings().first()
+    return dict(row) if row else {"workspace_name": "Analytics workspace", "currency": "GBP", "notifications_enabled": True}
+
+
+@app.put("/settings")
+def update_settings(payload: SettingsPayload, current_user=Depends(get_current_user)):
+    if payload.currency not in {"GBP", "USD", "EUR", "INR"}:
+        raise HTTPException(status_code=400, detail="Unsupported currency")
+    if not payload.workspace_name.strip():
+        raise HTTPException(status_code=400, detail="Workspace name is required")
+    ensure_user_settings_table()
+    values = {"owner_id": int(current_user["sub"]), "workspace_name": payload.workspace_name.strip(), "currency": payload.currency, "notifications_enabled": payload.notifications_enabled}
+    with engine.begin() as connection:
+        connection.execute(text("""
+            INSERT INTO user_settings (owner_id, workspace_name, currency, notifications_enabled)
+            VALUES (:owner_id, :workspace_name, :currency, :notifications_enabled)
+            ON CONFLICT (owner_id) DO UPDATE SET
+                workspace_name = EXCLUDED.workspace_name,
+                currency = EXCLUDED.currency,
+                notifications_enabled = EXCLUDED.notifications_enabled,
+                updated_at = NOW()
+        """), values)
+    return values
 
 
 @app.get("/analytics/summary")
