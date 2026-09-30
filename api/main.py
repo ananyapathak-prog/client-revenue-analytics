@@ -2,6 +2,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import os
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -17,6 +18,7 @@ from api.database import engine
 import pandas as pd
 
 app = FastAPI()
+logger = logging.getLogger("revenue-analytics")
 frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
 app.add_middleware(
     CORSMiddleware,
@@ -285,18 +287,21 @@ def ask_ai(payload: AskPayload, current_user=Depends(get_optional_user)):
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         return {"source": "deterministic", "answer": "AI questions are ready once OPENAI_API_KEY is configured on Render. Your data currently contains " + f"{context['totals']['orders']:,} orders and {context['totals']['customers']:,} customers."}
-    try:
-        from openai import OpenAI
-        response = OpenAI(api_key=api_key).responses.create(
-            model=os.getenv("OPENAI_MODEL", "gpt-5"),
-            input=[
-                {"role": "system", "content": "You are a careful business analyst. Answer the user's question using only the supplied business metrics. Be concise, specific, and state when the data is insufficient. Do not invent figures."},
-                {"role": "user", "content": json.dumps({"question": question, "data": context}, default=str)},
-            ],
-        )
-        return {"source": "openai", "answer": response.output_text.strip()}
-    except Exception:
-        return {"source": "deterministic", "answer": "I could not reach the AI service right now. Please check the Render OpenAI configuration and try again."}
+    from openai import OpenAI
+    models = [os.getenv("OPENAI_MODEL", "gpt-5"), "gpt-4o-mini"]
+    for model in dict.fromkeys(models):
+        try:
+            response = OpenAI(api_key=api_key).responses.create(
+                model=model,
+                input=[
+                    {"role": "system", "content": "You are a careful business analyst. Answer the user's question using only the supplied business metrics. Be concise, specific, and state when the data is insufficient. Do not invent figures."},
+                    {"role": "user", "content": json.dumps({"question": question, "data": context}, default=str)},
+                ],
+            )
+            return {"source": "openai", "model": model, "answer": response.output_text.strip()}
+        except Exception:
+            logger.exception("OpenAI request failed with model %s", model)
+    return {"source": "deterministic", "answer": f"I could not connect to OpenAI, but your data contains {context['totals']['orders']:,} orders and {context['totals']['customers']:,} customers. Your leading products are {', '.join(row['product'] for row in context['top_products'][:3])}."}
     try:
         from openai import OpenAI
         client = OpenAI(api_key=api_key)
