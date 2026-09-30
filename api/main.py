@@ -302,13 +302,14 @@ def ask_ai(payload: AskPayload, current_user=Depends(get_optional_user)):
                 result = json.loads(response.read().decode())
             output_steps = [step for step in result.get("steps", []) if step.get("type") == "model_output"]
             answer = "".join(part.get("text", "") for step in output_steps for part in step.get("content", [])).strip()
+            answer = answer or str(result.get("output_text", "")).strip()
             if not answer:
                 raise ValueError("Gemini returned no text")
             return {"source": "gemini", "model": gemini_model, "answer": answer}
         except urllib.error.HTTPError as error:
             details = error.read().decode(errors="replace")
             logger.error("Gemini HTTP %s for model %s: %s", error.code, gemini_model, details[:1000])
-        except (urllib.error.URLError, KeyError, IndexError, json.JSONDecodeError) as error:
+        except (urllib.error.URLError, KeyError, IndexError, ValueError, json.JSONDecodeError) as error:
             logger.error("Gemini response could not be parsed for model %s: %s", gemini_model, error)
         return {"source": "deterministic", "answer": f"Gemini could not answer right now, but your data contains {context['totals']['orders']:,} orders and {context['totals']['customers']:,} customers. Your leading products are {', '.join(row['product'] for row in context['top_products'][:3])}."}
     api_key = os.getenv("OPENAI_API_KEY")
