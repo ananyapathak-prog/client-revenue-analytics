@@ -5,6 +5,8 @@ import json
 import logging
 import os
 import secrets
+import urllib.error
+import urllib.request
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -285,9 +287,26 @@ def ask_ai(payload: AskPayload, current_user=Depends(get_optional_user)):
                 {"product": "Ceramic coffee set", "revenue": 131400},
             ],
         }
+    prompt = json.dumps({"question": question, "data": context}, default=str)
+    gemini_key = os.getenv("GEMINI_API_KEY")
+    if gemini_key:
+        gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+        request = urllib.request.Request(
+            f"https://generativelanguage.googleapis.com/v1beta/models/{gemini_model}:generateContent",
+            data=json.dumps({"contents": [{"parts": [{"text": "You are a careful business analyst. Answer the user's question using only the supplied business metrics. Be concise, specific, and state when the data is insufficient. Do not invent figures.\n\n" + prompt}]}]}).encode(),
+            headers={"Content-Type": "application/json", "x-goog-api-key": gemini_key},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=20) as response:
+                result = json.loads(response.read().decode())
+            answer = result["candidates"][0]["content"]["parts"][0]["text"].strip()
+            return {"source": "gemini", "model": gemini_model, "answer": answer}
+        except (urllib.error.URLError, KeyError, IndexError, json.JSONDecodeError):
+            logger.exception("Gemini request failed with model %s", gemini_model)
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        return {"source": "deterministic", "answer": "AI questions are ready once OPENAI_API_KEY is configured on Render. Your data currently contains " + f"{context['totals']['orders']:,} orders and {context['totals']['customers']:,} customers."}
+        return {"source": "deterministic", "answer": "AI questions are ready once GEMINI_API_KEY is configured on Render. Your data currently contains " + f"{context['totals']['orders']:,} orders and {context['totals']['customers']:,} customers."}
     from openai import OpenAI
     models = [os.getenv("OPENAI_MODEL", "gpt-5"), "gpt-4o-mini"]
     for model in dict.fromkeys(models):
@@ -296,7 +315,7 @@ def ask_ai(payload: AskPayload, current_user=Depends(get_optional_user)):
                 model=model,
                 input=[
                     {"role": "system", "content": "You are a careful business analyst. Answer the user's question using only the supplied business metrics. Be concise, specific, and state when the data is insufficient. Do not invent figures."},
-                    {"role": "user", "content": json.dumps({"question": question, "data": context}, default=str)},
+                    {"role": "user", "content": prompt},
                 ],
             )
             return {"source": "openai", "model": model, "answer": response.output_text.strip()}
