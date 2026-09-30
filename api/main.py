@@ -293,7 +293,7 @@ def ask_ai(payload: AskPayload, current_user=Depends(get_optional_user)):
         gemini_model = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
         request = urllib.request.Request(
             "https://generativelanguage.googleapis.com/v1beta/interactions",
-            data=json.dumps({"model": gemini_model, "input": "You are a careful business analyst. Answer the user's question using only the supplied business metrics. Be concise, specific, and state when the data is insufficient. Do not invent figures.\n\n" + prompt}).encode(),
+            data=json.dumps({"model": gemini_model, "input": "You are a practical growth analyst. Answer the user's question using the supplied business metrics. Give concise, specific, actionable recommendations when asked for strategy. You may suggest experiments or tactics even when the data cannot prove their outcome, but label them as recommendations and never invent figures or claim an unobserved result. Use the strongest products, customer retention opportunities, and order trends in the context.\n\n" + prompt}).encode(),
             headers={"Content-Type": "application/json", "x-goog-api-key": gemini_key},
             method="POST",
         )
@@ -322,7 +322,7 @@ def ask_ai(payload: AskPayload, current_user=Depends(get_optional_user)):
             response = OpenAI(api_key=api_key).responses.create(
                 model=model,
                 input=[
-                    {"role": "system", "content": "You are a careful business analyst. Answer the user's question using only the supplied business metrics. Be concise, specific, and state when the data is insufficient. Do not invent figures."},
+                    {"role": "system", "content": "You are a practical growth analyst. Answer the user's question using the supplied business metrics. Give concise, specific, actionable recommendations when asked for strategy. You may suggest experiments or tactics even when the data cannot prove their outcome, but label them as recommendations and never invent figures or claim an unobserved result. Use the strongest products, customer retention opportunities, and order trends in the context."},
                     {"role": "user", "content": prompt},
                 ],
             )
