@@ -298,7 +298,7 @@ def ask_ai(payload: AskPayload, current_user=Depends(get_optional_user)):
             method="POST",
         )
         try:
-            with urllib.request.urlopen(request, timeout=8) as response:
+            with urllib.request.urlopen(request, timeout=30) as response:
                 result = json.loads(response.read().decode())
             output_steps = [step for step in result.get("steps", []) if step.get("type") == "model_output"]
             answer = "".join(part.get("text", "") for step in output_steps for part in step.get("content", [])).strip()
