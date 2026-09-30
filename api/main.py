@@ -91,6 +91,71 @@ def ensure_user_transactions_table():
         """))
 
 
+def ensure_demo_transactions_table():
+    """Create a deterministic public demo dataset only when its table is absent."""
+    monthly = [
+        (1, 118400, 820), (2, 132800, 910), (3, 149500, 1040), (4, 143200, 982),
+        (5, 168900, 1160), (6, 181600, 1240), (7, 194800, 1310), (8, 210500, 1450),
+        (9, 225900, 1532), (10, 239400, 1640), (11, 254700, 1718), (12, 278300, 1884),
+    ]
+    values_sql = ", ".join(f"({month}, {revenue}, {orders})" for month, revenue, orders in monthly)
+    with engine.begin() as connection:
+        connection.execute(text("SELECT pg_advisory_xact_lock(91280417)"))
+        table_exists = connection.execute(text("SELECT to_regclass('public.transactions') IS NOT NULL")).scalar_one()
+        if table_exists:
+            return
+        connection.execute(text("""
+            CREATE TABLE transactions (
+                invoice_no TEXT NOT NULL,
+                stock_code TEXT,
+                description TEXT NOT NULL,
+                quantity NUMERIC(18, 4) NOT NULL,
+                invoice_date TIMESTAMP NOT NULL,
+                unit_price NUMERIC(18, 4) NOT NULL,
+                customer_id TEXT,
+                country TEXT,
+                revenue NUMERIC(20, 4) NOT NULL,
+                is_cancellation BOOLEAN NOT NULL DEFAULT FALSE
+            )
+        """))
+        connection.execute(text(f"""
+            WITH months(month_no, month_revenue, order_count) AS (VALUES {values_sql}),
+            demo_orders AS (
+                SELECT months.month_no, months.month_revenue, months.order_count, series.order_index,
+                       ROW_NUMBER() OVER (ORDER BY months.month_no, series.order_index) AS order_number
+                FROM months
+                CROSS JOIN LATERAL generate_series(1, months.order_count) AS series(order_index)
+            )
+            INSERT INTO transactions
+                (invoice_no, stock_code, description, quantity, invoice_date, unit_price, customer_id, country, revenue, is_cancellation)
+            SELECT
+                'DEMO-2024-' || LPAD(month_no::TEXT, 2, '0') || '-' || LPAD(order_index::TEXT, 5, '0'),
+                'SKU-' || LPAD((MOD(order_index * 7 + month_no, 5) + 1)::TEXT, 2, '0'),
+                CASE MOD(order_index * 7 + month_no, 5)
+                    WHEN 0 THEN 'Sterling silver pendant'
+                    WHEN 1 THEN 'Classic leather tote'
+                    WHEN 2 THEN 'Ceramic coffee set'
+                    WHEN 3 THEN 'Linen lounge shirt'
+                    ELSE 'Hand-poured candle'
+                END,
+                1,
+                MAKE_TIMESTAMP(2024, month_no, 1, 0, 0, 0) + (MOD(order_index, 28) * INTERVAL '1 day'),
+                month_revenue::NUMERIC / order_count,
+                CASE WHEN order_number <= 3197
+                     THEN 'C-ONE-' || LPAD(order_number::TEXT, 5, '0')
+                     ELSE 'C-REP-' || LPAD((MOD(order_number - 3198, 5215) + 1)::TEXT, 5, '0')
+                END,
+                CASE MOD(order_index + month_no, 3)
+                    WHEN 0 THEN 'United Kingdom'
+                    WHEN 1 THEN 'United States'
+                    ELSE 'Germany'
+                END,
+                month_revenue::NUMERIC / order_count,
+                FALSE
+            FROM demo_orders
+        """))
+
+
 def ensure_user_settings_table():
     with engine.begin() as connection:
         connection.execute(text("""
@@ -338,6 +403,8 @@ def analytics_health(current_user=Depends(get_optional_user)):
     source_table = "user_transactions" if current_user else "transactions"
     if current_user:
         ensure_user_transactions_table()
+    else:
+        ensure_demo_transactions_table()
     params: dict[str, Any] = {}
     owner_filter = ""
     if current_user:
