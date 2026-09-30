@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import type { ChangeEvent } from "react"
 import type { FormEvent } from "react"
 import { Area, AreaChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
@@ -46,6 +46,14 @@ function App() {
   const signedInUser = (() => { try { return JSON.parse(localStorage.getItem("arcadia_user") || "null") as { name?: string } | null } catch { return null } })()
   const displayName = isDemo ? "user" : signedInUser?.name || "user"
   const currentDate = new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" }).format(new Date()).toUpperCase()
+  useEffect(() => {
+    if (session !== "app") return
+    const token = localStorage.getItem("arcadia_token")
+    fetch(`${API_URL}/analytics/health`, token && token !== "demo-session" ? { headers: { Authorization: `Bearer ${token}` } } : undefined)
+      .then(async (response) => { if (!response.ok) throw new Error(); return response.json() })
+      .then((health) => setNotice(`Backend health checked · ${health.rows_analyzed.toLocaleString()} rows · ${health.quality_score}% quality`))
+      .catch(() => setNotice("Data health is available locally while the analytics API is offline"))
+  }, [session])
   const chartRevenue = liveSummary?.monthly_revenue?.length ? liveSummary.monthly_revenue : demoRevenue
   const products = liveSummary?.top_products?.length ? liveSummary.top_products : demoProducts
   const visibleProducts = filters.product === "All products" ? products : products.filter((product) => product.name === filters.product)

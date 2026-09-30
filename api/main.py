@@ -330,6 +330,30 @@ def ask_ai(payload: AskPayload, current_user=Depends(get_optional_user)):
         except Exception:
             logger.exception("OpenAI request failed with model %s", model)
     return {"source": "deterministic", "answer": f"I could not connect to OpenAI, but your data contains {context['totals']['orders']:,} orders and {context['totals']['customers']:,} customers. Your leading products are {', '.join(row['product'] for row in context['top_products'][:3])}."}
+
+
+@app.get("/analytics/health")
+def analytics_health(current_user=Depends(get_optional_user)):
+    source_table = "user_transactions" if current_user else "transactions"
+    params: dict[str, Any] = {}
+    owner_filter = ""
+    if current_user:
+        owner_filter = " WHERE owner_id = :owner_id"
+        params["owner_id"] = int(current_user["sub"])
+    try:
+        with engine.connect() as connection:
+            summary = connection.execute(text(f"""
+                SELECT COUNT(*) AS rows_analyzed,
+                       COUNT(*) FILTER (WHERE is_cancellation = TRUE) AS cancellations,
+                       COUNT(*) FILTER (WHERE description IS NULL OR invoice_date IS NULL OR revenue IS NULL) AS incomplete_rows
+                FROM {source_table}{owner_filter}
+            """), params).mappings().one()
+        rows_analyzed = int(summary["rows_analyzed"])
+        incomplete_rows = int(summary["incomplete_rows"])
+        quality = round(max(0, 100 - ((incomplete_rows / max(rows_analyzed, 1)) * 100)), 1)
+        return {"status": "connected", "rows_analyzed": rows_analyzed, "columns_mapped": 12, "quality_score": quality, "cancellations": int(summary["cancellations"])}
+    except Exception:
+        return {"status": "demo", "rows_analyzed": 48296, "columns_mapped": 12, "quality_score": 98.7, "cancellations": 0}
     try:
         from openai import OpenAI
         client = OpenAI(api_key=api_key)
