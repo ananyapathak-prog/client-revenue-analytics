@@ -292,15 +292,18 @@ def ask_ai(payload: AskPayload, current_user=Depends(get_optional_user)):
     if gemini_key:
         gemini_model = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
         request = urllib.request.Request(
-            f"https://generativelanguage.googleapis.com/v1beta/models/{gemini_model}:generateContent",
-            data=json.dumps({"contents": [{"parts": [{"text": "You are a careful business analyst. Answer the user's question using only the supplied business metrics. Be concise, specific, and state when the data is insufficient. Do not invent figures.\n\n" + prompt}]}]}).encode(),
+            "https://generativelanguage.googleapis.com/v1beta/interactions",
+            data=json.dumps({"model": gemini_model, "input": "You are a careful business analyst. Answer the user's question using only the supplied business metrics. Be concise, specific, and state when the data is insufficient. Do not invent figures.\n\n" + prompt}).encode(),
             headers={"Content-Type": "application/json", "x-goog-api-key": gemini_key},
             method="POST",
         )
         try:
             with urllib.request.urlopen(request, timeout=8) as response:
                 result = json.loads(response.read().decode())
-            answer = result["candidates"][0]["content"]["parts"][0]["text"].strip()
+            output_steps = [step for step in result.get("steps", []) if step.get("type") == "model_output"]
+            answer = "".join(part.get("text", "") for step in output_steps for part in step.get("content", [])).strip()
+            if not answer:
+                raise ValueError("Gemini returned no text")
             return {"source": "gemini", "model": gemini_model, "answer": answer}
         except urllib.error.HTTPError as error:
             details = error.read().decode(errors="replace")
