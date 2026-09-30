@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import hmac
+import io
 import json
 import logging
 import os
@@ -396,6 +397,70 @@ def analytics_health(current_user=Depends(get_optional_user)):
         "quality_score": quality,
         "cancellations": int(summary["cancellations"]),
         "incomplete_rows": incomplete_rows,
+    }
+
+
+@app.post("/analytics/quality-preview")
+async def analytics_quality_preview(file: UploadFile = File(...)):
+    """Validate an uploaded CSV in memory without storing or importing its rows."""
+    if not file.filename or not file.filename.lower().endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Please select a CSV file")
+    content = await file.read(15 * 1024 * 1024 + 1)
+    if len(content) > 15 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Quality preview is limited to CSV files up to 15 MB")
+    try:
+        df = pd.read_csv(io.BytesIO(content))
+    except (pd.errors.EmptyDataError, pd.errors.ParserError, UnicodeDecodeError) as error:
+        raise HTTPException(status_code=422, detail="The CSV could not be parsed. Check its encoding and row formatting.") from error
+    if df.empty and len(df.columns) == 0:
+        raise HTTPException(status_code=422, detail="The CSV has no header row or data")
+
+    aliases = {
+        "Order ID": {"orderid", "order_id", "invoice", "invoice_no", "invoiceno"},
+        "Customer ID": {"customerid", "customer_id", "customer", "client_id"},
+        "Product": {"product", "product_name", "item", "description"},
+        "Order date": {"date", "order_date", "transaction_date", "invoice_date"},
+        "Quantity": {"quantity", "qty", "units"},
+        "Revenue": {"revenue", "sales", "total_revenue", "line_total", "amount"},
+        "Unit price": {"price", "unit_price", "selling_price"},
+        "Country": {"country", "region", "market"},
+        "Cancellation flag": {"is_cancellation", "cancelled", "cancellation", "status"},
+    }
+    normalized_columns = {"".join(character for character in str(column).lower() if character.isalnum()): column for column in df.columns}
+    matched_fields = {
+        label: next((normalized_columns["".join(character for character in alias.lower() if character.isalnum())] for alias in field_aliases if "".join(character for character in alias.lower() if character.isalnum()) in normalized_columns), None)
+        for label, field_aliases in aliases.items()
+    }
+    detected = detect_columns(df.columns)
+    required = ["order_id", "date", "product", "quantity", "unit_price"]
+    missing = [field for field in required if field not in detected]
+    mapped = len(detected)
+    rows = len(df)
+    incomplete = 0
+    invalid_dates = 0
+    invalid_numbers = 0
+    cancellations = 0
+    if not missing:
+        normalized = standardize_data(df.copy(), detected)
+        incomplete = int(normalized[["order_id", "date", "product", "quantity", "unit_price"]].isna().any(axis=1).sum())
+        invalid_dates = int(pd.to_datetime(df[detected["date"]], errors="coerce").isna().sum())
+        invalid_numbers = int((pd.to_numeric(df[detected["quantity"]], errors="coerce").isna() | pd.to_numeric(df[detected["unit_price"]], errors="coerce").isna()).sum())
+        cancellations = int((normalized["quantity"] < 0).sum())
+    duplicates = int(df.duplicated().sum())
+    quality = round(max(0, 100 - (incomplete / max(rows, 1) * 100)), 1) if rows and not missing else None
+    return {
+        "source": "backend_csv_preview",
+        "filename": file.filename,
+        "rows": rows,
+        "columns": len(df.columns),
+        "mapped": sum(column is not None for column in matched_fields.values()),
+        "missing": [label for label, column in matched_fields.items() if column is None],
+        "incomplete": incomplete,
+        "duplicateRows": duplicates,
+        "invalidDates": invalid_dates,
+        "invalidNumbers": invalid_numbers,
+        "cancellations": cancellations,
+        "quality": quality,
     }
     try:
         from openai import OpenAI
