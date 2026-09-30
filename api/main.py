@@ -343,10 +343,12 @@ def analytics_health(current_user=Depends(get_optional_user)):
         owner_filter = " WHERE owner_id = :owner_id"
         params["owner_id"] = int(current_user["sub"])
     with engine.connect() as connection:
-        columns = connection.execute(text("""
+        columns = set(connection.execute(text("""
             SELECT column_name FROM information_schema.columns
             WHERE table_schema = current_schema() AND table_name = :table_name
-        """), {"table_name": source_table}).scalars().all()
+        """), {"table_name": source_table}).scalars().all())
+        required_columns = {"invoice_no", "description", "quantity", "invoice_date", "unit_price", "customer_id", "country", "revenue", "is_cancellation"}
+        missing_columns = sorted(required_columns - columns)
         if not columns:
             return {
                 "status": "dataset_missing",
@@ -354,13 +356,26 @@ def analytics_health(current_user=Depends(get_optional_user)):
                 "source_table": source_table,
                 "rows_analyzed": 0,
                 "columns_mapped": 0,
-                "columns_expected": 9,
+                "columns_expected": len(required_columns),
+                "missing_columns": sorted(required_columns),
                 "quality_score": None,
                 "cancellations": 0,
                 "incomplete_rows": 0,
             }
-        required_columns = {"invoice_no", "description", "quantity", "invoice_date", "unit_price", "customer_id", "country", "revenue", "is_cancellation"}
         mapped_columns = len(required_columns.intersection(columns))
+        if missing_columns:
+            return {
+                "status": "schema_incomplete",
+                "database_connected": True,
+                "source_table": source_table,
+                "rows_analyzed": 0,
+                "columns_mapped": mapped_columns,
+                "columns_expected": len(required_columns),
+                "missing_columns": missing_columns,
+                "quality_score": None,
+                "cancellations": 0,
+                "incomplete_rows": 0,
+            }
         summary = connection.execute(text(f"""
             SELECT COUNT(*) AS rows_analyzed,
                    COUNT(*) FILTER (WHERE is_cancellation = TRUE) AS cancellations,
@@ -377,6 +392,7 @@ def analytics_health(current_user=Depends(get_optional_user)):
         "rows_analyzed": rows_analyzed,
         "columns_mapped": mapped_columns,
         "columns_expected": len(required_columns),
+        "missing_columns": [],
         "quality_score": quality,
         "cancellations": int(summary["cancellations"]),
         "incomplete_rows": incomplete_rows,

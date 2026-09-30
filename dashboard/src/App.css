@@ -79,3 +79,22 @@ body { background: var(--canvas); color: var(--ink); }
 .app-shell .insight-panel { background: #eaf6f2; border-color: #b9ddd3; }
 .app-shell .insight-panel .insight-score { background: #fff; border-color: #d0e9e1; }
 .app-shell .insight-panel .text-button { color: #17645c; }
+.quality-modal { width: min(620px,100%); }
+.quality-summary { display: flex; align-items: center; gap: 11px; margin: 20px 0 15px; padding: 13px; border: 1px solid #e2ebe7; border-radius: 8px; background: #f8fbfa; }
+.quality-summary-dot { width: 9px; height: 9px; flex: 0 0 auto; border-radius: 50%; background: #b45e4f; }
+.quality-summary-dot.is-good { background: #388b6d; box-shadow: 0 0 0 4px #e3f4eb; }
+.quality-summary-dot.is-pending { background: #c68e30; box-shadow: 0 0 0 4px #fff3d8; }
+.quality-summary div { flex: 1; min-width: 0; }
+.quality-summary strong, .quality-summary span { display: block; }
+.quality-summary strong { color: #29443f; font-size: 12px; }
+.quality-summary div span { margin-top: 4px; color: #879792; font-size: 10px; }
+.quality-check-list { margin: 0 0 20px; border-top: 1px solid #eaf0ed; }
+.quality-check { display: flex; align-items: center; gap: 11px; padding: 12px 4px; border-bottom: 1px solid #eaf0ed; }
+.quality-state { display: grid; place-items: center; width: 23px; height: 23px; flex: 0 0 auto; border-radius: 50%; background: #eef2f0; color: #82928d; font-size: 12px; font-weight: 800; }
+.quality-state.pass { background: #e5f5ed; color: #34896c; }
+.quality-state.warn { background: #fff4da; color: #b58225; }
+.quality-state.fail { background: #fcedea; color: #b65f50; }
+.quality-check div { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; width: 100%; min-width: 0; }
+.quality-check strong { color: #49615c; font-size: 11px; }
+.quality-check div span { color: #82918d; font-size: 11px; text-align: right; overflow-wrap: anywhere; }
+@media(max-width:540px){.quality-summary{align-items:flex-start;flex-wrap:wrap}.quality-summary .button{width:100%}.quality-check div{align-items:flex-start;flex-direction:column;gap:4px}.quality-check div span{text-align:left}}
