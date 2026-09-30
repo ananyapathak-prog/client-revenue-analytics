@@ -54,6 +54,17 @@ function App() {
       .then((health) => setNotice(`Backend health checked · ${health.rows_analyzed.toLocaleString()} rows · ${health.quality_score}% quality`))
       .catch(() => setNotice("Data health is available locally while the analytics API is offline"))
   }, [session])
+  useEffect(() => {
+    const handleDashboardAction = (event: MouseEvent) => {
+      const target = event.target as HTMLElement
+      const button = target.closest("button")
+      if (!button) return
+      if (button.textContent?.includes("Review data quality")) setModal("quality")
+      if (button.textContent?.includes("Settings") && button.closest(".quick-panel")) setModal("settings")
+    }
+    document.addEventListener("click", handleDashboardAction)
+    return () => document.removeEventListener("click", handleDashboardAction)
+  }, [])
   const chartRevenue = liveSummary?.monthly_revenue?.length ? liveSummary.monthly_revenue : demoRevenue
   const products = liveSummary?.top_products?.length ? liveSummary.top_products : demoProducts
   const visibleProducts = filters.product === "All products" ? products : products.filter((product) => product.name === filters.product)
@@ -193,7 +204,7 @@ function ActionModal({ kind, onClose }: { kind: string; onClose: () => void }) {
   const [answer, setAnswer] = useState("")
   const [busy, setBusy] = useState(false)
   const copy: Record<string, { title: string; body: string }> = { filters: { title: "Filter your workspace", body: "Filtering is ready for your connected dataset. Choose a date range, channel, or customer segment to refine this view." }, date: { title: "Choose date range", body: "The dashboard is currently showing the last 12 months. Date presets will apply to every chart and KPI." }, revenue: { title: "Revenue performance", body: "December is your strongest month at £278K, with a steady 18.4% year-over-year lift across the period." }, analysis: { title: "Full business analysis", body: "Your strongest signal is repeat customer value. Focus on retention campaigns and protect the momentum from the second half of the year." } }
-  const content = copy[kind] ?? copy.analysis
+  const content = kind === "quality" ? { title: "Review data quality", body: "Your backend health check is complete. The connected dataset is available for analysis, with mapped columns, cancellation checks, and missing-value validation included." } : copy[kind] ?? copy.analysis
   const ask = async () => {
     if (!question.trim()) return
     setBusy(true)
