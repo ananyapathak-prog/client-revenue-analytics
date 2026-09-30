@@ -298,12 +298,13 @@ def ask_ai(payload: AskPayload, current_user=Depends(get_optional_user)):
             method="POST",
         )
         try:
-            with urllib.request.urlopen(request, timeout=20) as response:
+            with urllib.request.urlopen(request, timeout=8) as response:
                 result = json.loads(response.read().decode())
             answer = result["candidates"][0]["content"]["parts"][0]["text"].strip()
             return {"source": "gemini", "model": gemini_model, "answer": answer}
         except (urllib.error.URLError, KeyError, IndexError, json.JSONDecodeError):
             logger.exception("Gemini request failed with model %s", gemini_model)
+        return {"source": "deterministic", "answer": f"Gemini could not answer right now, but your data contains {context['totals']['orders']:,} orders and {context['totals']['customers']:,} customers. Your leading products are {', '.join(row['product'] for row in context['top_products'][:3])}."}
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         return {"source": "deterministic", "answer": "AI questions are ready once GEMINI_API_KEY is configured on Render. Your data currently contains " + f"{context['totals']['orders']:,} orders and {context['totals']['customers']:,} customers."}
