@@ -7,7 +7,7 @@ import "./App.css"
 type Row = Record<string, string | number>
 type RevenuePoint = { month: string; revenue: number; orders: number }
 type AiInsight = { icon: string; title: string; text: string; tone: string }
-const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000"
+const API_URL = import.meta.env.VITE_API_URL || "https://client-revenue-analytics-api.onrender.com"
 
 const demoRevenue: RevenuePoint[] = [
   { month: "Jan", revenue: 118400, orders: 820 }, { month: "Feb", revenue: 132800, orders: 910 },
