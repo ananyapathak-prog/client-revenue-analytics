@@ -54,3 +54,28 @@ body { background: var(--canvas); color: var(--ink); }
 .ai-answer { border: 1px solid #d6ebe4; background: #f0f9f5; }
 @media(max-width:1100px){.sidebar{width:220px;flex-basis:220px}.content-wrap,.topbar{padding-left:27px;padding-right:27px}}
 @media(max-width:760px){.content-wrap{padding:28px 16px 52px}.topbar{padding:0 18px}.metric-card{min-height:124px;padding:15px}.panel{padding:16px}.tab-spotlight{padding:20px}.modal-card{padding:24px}}
+
+/* High-contrast workspace shell */
+.app-shell .sidebar { background: #123f3a; border-right: 0; }
+.app-shell .brand strong { color: #fff; }
+.app-shell .brand span { color: #9cc7bd; }
+.app-shell .brand-mark { background: #72c3ae; color: #123f3a; }
+.app-shell .nav-label { color: #79a99e; }
+.app-shell .nav-item { color: #b8d2cc; }
+.app-shell .nav-item:hover { background: rgba(255,255,255,.09); color: #fff; }
+.app-shell .nav-item.active { background: #e4f3ef; border-color: transparent; color: #124c46; }
+.app-shell .help-card { border-color: rgba(255,255,255,.14); background: rgba(255,255,255,.08); color: #e4f3ef; }
+.app-shell .help-card div span { color: #9fc4ba; }
+.app-shell .help-icon { border-color: #76a99e; }
+.app-shell .profile { border-top-color: rgba(255,255,255,.15); color: #fff; }
+.app-shell .profile div span, .app-shell .more { color: #9fc4ba; }
+.app-shell .avatar { background: #d9eee8; color: #124c46; }
+.app-shell .topbar { background: #fff; }
+.app-shell .metric-card { position: relative; overflow: hidden; }
+.app-shell .metric-card::before { content: ""; position: absolute; inset: 0 0 auto; height: 3px; background: #7ab9ab; }
+.app-shell .metric-card:nth-child(2)::before { background: #e0ad4e; }
+.app-shell .metric-card:nth-child(3)::before { background: #80a8d2; }
+.app-shell .metric-card:nth-child(4)::before { background: #d7816f; }
+.app-shell .insight-panel { background: #eaf6f2; border-color: #b9ddd3; }
+.app-shell .insight-panel .insight-score { background: #fff; border-color: #d0e9e1; }
+.app-shell .insight-panel .text-button { color: #17645c; }
