@@ -335,25 +335,52 @@ def ask_ai(payload: AskPayload, current_user=Depends(get_optional_user)):
 @app.get("/analytics/health")
 def analytics_health(current_user=Depends(get_optional_user)):
     source_table = "user_transactions" if current_user else "transactions"
+    if current_user:
+        ensure_user_transactions_table()
     params: dict[str, Any] = {}
     owner_filter = ""
     if current_user:
         owner_filter = " WHERE owner_id = :owner_id"
         params["owner_id"] = int(current_user["sub"])
-    try:
-        with engine.connect() as connection:
-            summary = connection.execute(text(f"""
-                SELECT COUNT(*) AS rows_analyzed,
-                       COUNT(*) FILTER (WHERE is_cancellation = TRUE) AS cancellations,
-                       COUNT(*) FILTER (WHERE description IS NULL OR invoice_date IS NULL OR revenue IS NULL) AS incomplete_rows
-                FROM {source_table}{owner_filter}
-            """), params).mappings().one()
-        rows_analyzed = int(summary["rows_analyzed"])
-        incomplete_rows = int(summary["incomplete_rows"])
-        quality = round(max(0, 100 - ((incomplete_rows / max(rows_analyzed, 1)) * 100)), 1)
-        return {"status": "connected", "rows_analyzed": rows_analyzed, "columns_mapped": 12, "quality_score": quality, "cancellations": int(summary["cancellations"])}
-    except Exception:
-        return {"status": "demo", "rows_analyzed": 48296, "columns_mapped": 12, "quality_score": 98.7, "cancellations": 0}
+    with engine.connect() as connection:
+        columns = connection.execute(text("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_schema = current_schema() AND table_name = :table_name
+        """), {"table_name": source_table}).scalars().all()
+        if not columns:
+            return {
+                "status": "dataset_missing",
+                "database_connected": True,
+                "source_table": source_table,
+                "rows_analyzed": 0,
+                "columns_mapped": 0,
+                "columns_expected": 9,
+                "quality_score": None,
+                "cancellations": 0,
+                "incomplete_rows": 0,
+            }
+        required_columns = {"invoice_no", "description", "quantity", "invoice_date", "unit_price", "customer_id", "country", "revenue", "is_cancellation"}
+        mapped_columns = len(required_columns.intersection(columns))
+        summary = connection.execute(text(f"""
+            SELECT COUNT(*) AS rows_analyzed,
+                   COUNT(*) FILTER (WHERE is_cancellation = TRUE) AS cancellations,
+                   COUNT(*) FILTER (WHERE description IS NULL OR invoice_date IS NULL OR revenue IS NULL) AS incomplete_rows
+            FROM {source_table}{owner_filter}
+        """), params).mappings().one()
+    rows_analyzed = int(summary["rows_analyzed"])
+    incomplete_rows = int(summary["incomplete_rows"])
+    quality = round(max(0, 100 - ((incomplete_rows / max(rows_analyzed, 1)) * 100)), 1) if rows_analyzed else None
+    return {
+        "status": "connected" if rows_analyzed else "dataset_empty",
+        "database_connected": True,
+        "source_table": source_table,
+        "rows_analyzed": rows_analyzed,
+        "columns_mapped": mapped_columns,
+        "columns_expected": len(required_columns),
+        "quality_score": quality,
+        "cancellations": int(summary["cancellations"]),
+        "incomplete_rows": incomplete_rows,
+    }
     try:
         from openai import OpenAI
         client = OpenAI(api_key=api_key)
