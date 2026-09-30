@@ -290,7 +290,7 @@ def ask_ai(payload: AskPayload, current_user=Depends(get_optional_user)):
     prompt = json.dumps({"question": question, "data": context}, default=str)
     gemini_key = os.getenv("GEMINI_API_KEY")
     if gemini_key:
-        gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+        gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
         request = urllib.request.Request(
             f"https://generativelanguage.googleapis.com/v1beta/models/{gemini_model}:generateContent",
             data=json.dumps({"contents": [{"parts": [{"text": "You are a careful business analyst. Answer the user's question using only the supplied business metrics. Be concise, specific, and state when the data is insufficient. Do not invent figures.\n\n" + prompt}]}]}).encode(),
